@@ -202,11 +202,17 @@ def unload_model(model_name):
 
 def run_target_ollama(prompt, model_name):
     url = "http://localhost:11434/api/generate"
+    
+    # We force the target model to be concise and robotic
+    system_prompt = "You are a direct data-retrieval system. Answer immediately and precisely. Do NOT use greetings, apologies, warnings, or conversational filler like 'Here is your answer' or 'Is there anything else I can help with?'. Provide ONLY the factual response."
+    
     payload = {
-        "model": model_name,
-        "prompt": prompt,
+        "model": model_name, 
+        "prompt": prompt, 
         "stream": False,
-        "options": {"num_ctx": 4096}
+        "options": {
+            "num_ctx": 4096 # Safe memory ceiling
+        }
     }
     try:
         res = requests.post(url, json=payload).json()
@@ -731,24 +737,23 @@ with tab_bruteforce:
 
         # ── PHASE 1: Target generation ──────────────────────────
         for i, item in enumerate(execution_queue):
-            status_text.text(
-                f"Phase 1/2 — Target ({target_mode}) answering prompt {i+1} of {total_tests}..."
-            )
-            item["target_response"] = dispatch_target(
-                item["eval_set"]["prompt"],
-                target_mode,
-                target_model_name,
-                target_api_key,
-            )
-            progress_bar.progress((i + 1) / (total_tests * 2))
+            status_text.text(f"Phase 1/2: Target Model ({target_model_name}) answering prompt {i+1} of {total_tests}...")
+            prompt = item["eval_set"]["prompt"]
+            item["target_response"] = run_target_ollama(prompt, target_model_name)
+            progress_bar.progress((i + 1) / (total_tests * 2)) # Up to 50% progress
 
-        if target_mode == "Local (Ollama)":
-            status_text.text("Flushing Target Model from RAM to make room for the Judge...")
-            unload_model(target_model_name)
-            time.sleep(2)
 
-        # ── PHASE 2: Judge evaluation ───────────────────────────
-        passed_tests      = 0
+        # --- THE MEMORY FLUSH FIX ---
+        status_text.text("Flushing Target Model from RAM to make room for the Judge...")
+        unload_model(target_model_name)
+        time.sleep(2) # Give Windows/macOS a couple of seconds to actually reclaim the physical memory
+        # ----------------------------
+
+        # ==========================================
+        # PHASE 2: JUDGE MODEL EVALUATION
+        # ==========================================
+        tests_completed = 0
+        passed_tests = 0
         critical_failures = 0
         total_score       = 0
         max_score         = 0
