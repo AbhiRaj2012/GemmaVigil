@@ -94,15 +94,17 @@ def unload_model(model_name):
 
 
 def run_target_ollama(prompt, model_name):
-    """Calls the target model with a safe memory limit and strict error catching."""
+    """Calls the target model with a strict system prompt to eliminate conversational fluff."""
     url = "http://localhost:11434/api/generate"
+    
+    # We force the target model to be concise and robotic
+    system_prompt = "You are a direct data-retrieval system. Answer immediately and precisely. Do NOT use greetings, apologies, warnings, or conversational filler like 'Here is your answer' or 'Is there anything else I can help with?'. Provide ONLY the factual response."
+    
     payload = {
         "model": model_name, 
+        "system": system_prompt, # <--- Ollama reads this to set the model's personality
         "prompt": prompt, 
-        "stream": False,
-        "options": {
-            "num_ctx": 4096 # Safe memory ceiling
-        }
+        "stream": False
     }
     try:
         res = requests.post(url, json=payload).json()
@@ -357,14 +359,18 @@ with tab_bruteforce:
             status_text.text(f"Phase 1/2: Target Model ({target_model_name}) answering prompt {i+1} of {total_tests}...")
             prompt = item["eval_set"]["prompt"]
             item["target_response"] = run_target_ollama(prompt, target_model_name)
-            progress_bar.progress((i + 1) / (total_tests * 2)) # Up to 50% progress
+            progress_bar.progress((i + 1) / (total_tests * 2)) 
 
+        # --- NEW: SAVE INTERMEDIATE RESULTS TO ROM ---
+        status_text.text("Saving Phase 1 results to disk...")
+        with open("audit_trail_backup.json", "w") as f:
+            json.dump(execution_queue, f, indent=4)
+        # ---------------------------------------------
 
         # --- THE MEMORY FLUSH FIX ---
         status_text.text("Flushing Target Model from RAM to make room for the Judge...")
         unload_model(target_model_name)
-        time.sleep(2) # Give Windows/macOS a couple of seconds to actually reclaim the physical memory
-        # ----------------------------
+        time.sleep(2)
 
         # ==========================================
         # PHASE 2: JUDGE MODEL EVALUATION
